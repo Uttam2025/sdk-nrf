@@ -14,6 +14,9 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/net/net_if.h>
 #include <zephyr/pm/device.h>
+#include <zephyr/sys/reboot.h>
+
+#include <dfu/dfu_target_mcuboot.h>
 
 #include <net/downloader.h>
 
@@ -48,7 +51,8 @@ static const char *ota_target_name(int target)
 
 static struct downloader dl;
 static struct fs_file_t ota_file;
-static char dl_buf[2048];
+static char dl_buf[2048] __aligned(4);
+static uint8_t mcuboot_buf[1024] __aligned(4);
 static K_SEM_DEFINE(dl_done, 0, 1);
 static int dl_result;
 
@@ -146,6 +150,71 @@ out_close:
 	return err;
 }
 
+static int stage_nrf53_update(int image, off_t offset, size_t length)
+{
+	struct fs_file_t file;
+	ssize_t bytes_read;
+	int err;
+
+	if (length < sizeof(uint32_t)) {
+		return -EBADMSG;
+	}
+	fs_file_t_init(&file);
+	err = fs_open(&file, OTA_BUNDLE_PATH, FS_O_READ);
+	if (err < 0) {
+		return err;
+	}
+	err = fs_seek(&file, offset, FS_SEEK_SET);
+	if (err < 0) {
+		goto out_close;
+	}
+	bytes_read = fs_read(&file, dl_buf, sizeof(uint32_t));
+	if (bytes_read != sizeof(uint32_t) || !dfu_target_mcuboot_identify(dl_buf)) {
+		LOG_ERR("nRF53 image %d is not a MCUboot image", image);
+		err = bytes_read < 0 ? (int)bytes_read : -EBADMSG;
+		goto out_close;
+	}
+	err = fs_seek(&file, offset, FS_SEEK_SET);
+	if (err < 0) {
+		goto out_close;
+	}
+	err = dfu_target_mcuboot_set_buf(mcuboot_buf, sizeof(mcuboot_buf));
+	if (err < 0) {
+		goto out_close;
+	}
+	err = dfu_target_mcuboot_init(length, image, NULL);
+	if (err < 0) {
+		goto out_close;
+	}
+
+	for (size_t remaining = length; remaining > 0;) {
+		bytes_read = fs_read(&file, dl_buf, MIN(remaining, sizeof(dl_buf)));
+		if (bytes_read <= 0) {
+			err = bytes_read < 0 ? (int)bytes_read : -ENODATA;
+			goto out_abort;
+		}
+		err = dfu_target_mcuboot_write(dl_buf, bytes_read);
+		if (err < 0) {
+			goto out_abort;
+		}
+		remaining -= bytes_read;
+	}
+	err = dfu_target_mcuboot_done(true);
+	if (err == 0) {
+		LOG_INF("nRF53 image %d staged: %zu bytes", image, length);
+	}
+	goto out_close;
+
+out_abort:
+	(void)dfu_target_mcuboot_done(false);
+out_close:
+	if (err) {
+		fs_close(&file);
+		return err;
+	}
+	return fs_close(&file);
+}
+
 static int apply_nrf91_update(enum sm_xdfu_image_type type, off_t offset, size_t length)
 {
 	const struct device *modem = DEVICE_DT_GET(DT_ALIAS(modem));
@@ -212,6 +281,7 @@ int ota_bundle_apply(void)
 	ssize_t bytes_read;
 	int err;
 	bool sha_initialized = false;
+	bool nrf53_staged = false;
 
 	fs_file_t_init(&ota_file);
 	err = fs_open(&ota_file, OTA_BUNDLE_PATH, FS_O_READ);
@@ -335,6 +405,16 @@ out_close:
 		const struct ota_element *element = &bundle.ota_element_m[i];
 
 		switch (element->target_choice) {
+		case ota_element_target_nrf53_app_m_c:
+		case ota_element_target_nrf53_net_m_c:
+			err = stage_nrf53_update(
+				element->target_choice == ota_element_target_nrf53_app_m_c ? 0 : 1,
+				(off_t)payload_offset, element->size);
+			if (err) {
+				return err;
+			}
+			nrf53_staged = true;
+			break;
 		case ota_element_target_nrf91_app_m_c:
 			err = apply_nrf91_update(SM_XDFU_TYPE_APP, (off_t)payload_offset, element->size);
 			if (err) {
@@ -361,6 +441,23 @@ out_close:
 			break;
 		}
 		payload_offset += element->size;
+	}
+	if (nrf53_staged) {
+		for (size_t i = 0; i < bundle.ota_element_m_count; i++) {
+			const struct ota_element *element = &bundle.ota_element_m[i];
+
+			if (element->target_choice != ota_element_target_nrf53_app_m_c &&
+			    element->target_choice != ota_element_target_nrf53_net_m_c) {
+				continue;
+			}
+			err = dfu_target_mcuboot_schedule_update(
+				element->target_choice == ota_element_target_nrf53_app_m_c ? 0 : 1);
+			if (err) {
+				return err;
+			}
+		}
+		LOG_INF("nRF53 updates scheduled; rebooting");
+		sys_reboot(SYS_REBOOT_COLD);
 	}
 	return err;
 }

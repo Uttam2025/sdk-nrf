@@ -89,6 +89,30 @@ order of the other elements. This lets a mixed bundle retry full DFU while in
 bootloader mode without firmware reordering. Regenerate existing mixed bundles
 to encode that ordering before using them for full-modem recovery.
 
+nRF53 application and network-core updates
+*****************************************
+
+``nrf53_app`` must contain the MCUboot-signed application binary, normally
+``build/t91x-memfault-slm-host-app/zephyr/zephyr.signed.bin``. ``nrf53_net`` must
+contain the signed network-core update image, normally
+``build/signed_by_mcuboot_and_b0_empty_net_core.bin`` for this sample's NSIB
+network-core configuration. Do not use raw HEX files or ZIP archives as elements.
+
+The host stages app image pair 0 in ``slot1_partition`` and network-core image
+pair 1 in ``slot3_partition``, reading each element's exact range from the bundle.
+Staging and nRF91 transfers follow file order. After all supported transfers
+succeed, only the nRF53 images present in the bundle are scheduled, then the
+host reboots. MCUboot validates the staged images and forwards the network-core
+image through PCD. App-only bundles do not schedule the network-core slot.
+
+``sysbuild.conf`` enables ``SB_CONFIG_MCUBOOT_NRF53_MULTI_IMAGE_UPDATE``. Sysbuild
+assigns two application-visible image pairs and preserves the separate MCUboot
+self-update image. Rebuild and flash the updated bootloader and application
+together before using network-core OTA; an application-only update cannot add
+network-core support to an already installed bootloader. Regenerate bundle
+payloads from the new build. Hardware activation and rollback behavior must be
+tested with the corresponding bootloader and signed images.
+
 Setup
 *****
 

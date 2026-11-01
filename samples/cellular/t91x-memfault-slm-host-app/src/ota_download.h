@@ -27,7 +27,7 @@
 int ota_bundle_download(const char *url, const int *sec_tags, uint8_t sec_tag_count);
 
 /**
- * @brief Verify the downloaded bundle and apply its nRF91 update elements.
+ * @brief Verify the downloaded bundle and apply its supported update elements.
  *
  * Verifies element metadata, payload size, and SHA-256 before any transfer.
  * Suspends the modem and PPP interface, streams application, modem delta, or
@@ -35,9 +35,12 @@ int ota_bundle_download(const char *url, const int *sec_tags, uint8_t sec_tag_co
  * A failed full-modem update leaves the modem suspended for retry.
  * Network registration completes asynchronously. Other targets are not applied.
  * The nRF91 application must confirm its new MCUboot image after booting.
+ * nRF53 app/net images are staged in their MCUboot secondary slots in file order.
+ * After all supported transfers succeed, only the staged nRF53 images are
+ * scheduled and the host reboots. No nRF53 image is scheduled on a staging error.
  *
  * @retval 0 on success, negative errno on failure.
- * @retval -ENOTSUP if the bundle contains no supported nRF91 update element.
+ * @retval -ENOTSUP if the bundle contains no supported update element.
  */
 int ota_bundle_apply(void);
 
