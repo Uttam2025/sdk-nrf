@@ -36,6 +36,9 @@ int ota_bundle_download(const char *url, const int *sec_tags, uint8_t sec_tag_co
  * Network registration completes asynchronously. Other targets are not applied.
  * The nRF91 application must confirm its new MCUboot image after booting.
  * nRF53 app/net images are staged in their MCUboot secondary slots in file order.
+ * nRF53 bootloader images share app staging; a second app/bootloader write is
+ * rejected with -EBUSY. MCUboot copies a bootloader candidate into the inactive
+ * S0/S1 bank on reboot, without direct bank writes by this application.
  * After all supported transfers succeed, only the staged nRF53 images are
  * scheduled and the host reboots. No nRF53 image is scheduled on a staging error.
  *

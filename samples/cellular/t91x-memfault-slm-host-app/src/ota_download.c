@@ -282,6 +282,7 @@ int ota_bundle_apply(void)
 	int err;
 	bool sha_initialized = false;
 	bool nrf53_staged = false;
+	bool primary_staged = false;
 
 	fs_file_t_init(&ota_file);
 	err = fs_open(&ota_file, OTA_BUNDLE_PATH, FS_O_READ);
@@ -407,13 +408,22 @@ out_close:
 		switch (element->target_choice) {
 		case ota_element_target_nrf53_app_m_c:
 		case ota_element_target_nrf53_net_m_c:
+		case ota_element_target_nrf53_bl_m_c:
+			if (element->target_choice != ota_element_target_nrf53_net_m_c &&
+			    primary_staged) {
+				LOG_ERR("nRF53 app/bootloader staging partition is already primed");
+				return -EBUSY;
+			}
 			err = stage_nrf53_update(
-				element->target_choice == ota_element_target_nrf53_app_m_c ? 0 : 1,
+				element->target_choice == ota_element_target_nrf53_net_m_c ? 1 : 0,
 				(off_t)payload_offset, element->size);
 			if (err) {
 				return err;
 			}
 			nrf53_staged = true;
+			if (element->target_choice != ota_element_target_nrf53_net_m_c) {
+				primary_staged = true;
+			}
 			break;
 		case ota_element_target_nrf91_app_m_c:
 			err = apply_nrf91_update(SM_XDFU_TYPE_APP, (off_t)payload_offset, element->size);
@@ -447,11 +457,12 @@ out_close:
 			const struct ota_element *element = &bundle.ota_element_m[i];
 
 			if (element->target_choice != ota_element_target_nrf53_app_m_c &&
-			    element->target_choice != ota_element_target_nrf53_net_m_c) {
+			    element->target_choice != ota_element_target_nrf53_net_m_c &&
+			    element->target_choice != ota_element_target_nrf53_bl_m_c) {
 				continue;
 			}
 			err = dfu_target_mcuboot_schedule_update(
-				element->target_choice == ota_element_target_nrf53_app_m_c ? 0 : 1);
+				element->target_choice == ota_element_target_nrf53_net_m_c ? 1 : 0);
 			if (err) {
 				return err;
 			}

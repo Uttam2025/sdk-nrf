@@ -75,8 +75,8 @@ Network registration after restoration is asynchronous.
 The nRF91 firmware must support these XDFU commands; full-modem updates also
 require ``CONFIG_SM_DFU_MODEM_FULL=y`` in that firmware. A new application must
 confirm its MCUboot test image after booting. The host's own MCUboot confirmation
-does not confirm the nRF91 image. nRF53 and nRF91 bootloader targets are logged
-and skipped. The bundle is retained on external flash for inspection or retry.
+does not confirm the nRF91 image. The nRF91 bootloader target is logged and
+skipped. The bundle is retained on external flash for inspection or retry.
 
 Full-modem updates are destructive once programming begins. If a full update
 fails, the host leaves the modem suspended and does not restart PPP. Retry the
@@ -112,6 +112,25 @@ together before using network-core OTA; an application-only update cannot add
 network-core support to an already installed bootloader. Regenerate bundle
 payloads from the new build. Hardware activation and rollback behavior must be
 tested with the corresponding bootloader and signed images.
+
+nRF53 bootloader updates
+************************
+
+``nrf53_bl`` uses the existing MCUboot-managed self-update path. Supply the
+MCUboot-wrapped, NSIB-signed image linked for the inactive bank, for example
+``build/signed_by_mcuboot_and_b0_mcuboot_s1_variant.bin`` when S0 is active,
+or ``build/signed_by_mcuboot_and_b0_mcuboot.bin`` when S1 is active. The NSIB
+firmware version must allow the new bank to be selected on boot. MCUboot verifies
+the candidate and copies it into the inactive S0/S1 bank. Neither bank is written
+directly by the application, and bootloader code/protection settings are unchanged.
+
+Application and bootloader candidates share ``slot1_partition``. The generator
+prints a warning if ``nrf53_app`` and ``nrf53_bl`` are both included, but still
+creates the bundle in the prescribed order. Firmware tracks whether that slot
+has already been primed and returns ``-EBUSY`` before a second shared-slot write.
+On this error it does not schedule updates or reboot. Use separate app and
+bootloader bundles; a bootloader-plus-network-core bundle is supported because
+the network-core candidate uses a different staging partition.
 
 Setup
 *****

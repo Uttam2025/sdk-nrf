@@ -64,6 +64,12 @@ def build_bundle(elements: list[tuple[str, Path]]) -> bytes:
         raise ValueError("each target may only appear once")
     if "nrf91_mdm_delta" in targets and "nrf91_mdm_full" in targets:
         raise ValueError("nrf91_mdm_delta and nrf91_mdm_full cannot be in the same bundle")
+    if "nrf53_app" in targets and "nrf53_bl" in targets:
+        print(
+            "Warning: nrf53_app and nrf53_bl share a staging partition; firmware rejects "
+            "the second write. Use separate bundles for these targets.",
+            file=sys.stderr,
+        )
 
     payloads = [path.read_bytes() for _, path in elements]
     for (target, path), payload in zip(elements, payloads):
