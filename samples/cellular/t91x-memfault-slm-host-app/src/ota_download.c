@@ -146,7 +146,7 @@ out_close:
 	return err;
 }
 
-static int apply_nrf91_app(off_t offset, size_t length)
+static int apply_nrf91_update(enum sm_xdfu_image_type type, off_t offset, size_t length)
 {
 	const struct device *modem = DEVICE_DT_GET(DT_ALIAS(modem));
 	struct net_if *iface = net_if_get_first_by_type(&NET_L2_GET_NAME(PPP));
@@ -165,20 +165,26 @@ static int apply_nrf91_app(off_t offset, size_t length)
 		}
 	}
 	err = pm_device_action_run(modem, PM_DEVICE_ACTION_SUSPEND);
-	if (err < 0) {
+	if (err < 0 && err != -EALREADY) {
 		LOG_ERR("Failed to suspend modem for XDFU: %d", err);
 		goto restore_interface;
 	}
 
-	LOG_INF("Transferring nRF91 application: offset %lld, size %zu",
-		(long long)offset, length);
-	err = sm_xdfu_app_run(modem, OTA_BUNDLE_PATH, offset, length);
+	LOG_INF("Transferring nRF91 update type %d: offset %lld, size %zu",
+		type, (long long)offset, length);
+	err = sm_xdfu_run(modem, type, OTA_BUNDLE_PATH, offset, length);
+	if (type == SM_XDFU_TYPE_FULL_MFW && err < 0) {
+		LOG_ERR("Full-modem update failed; modem remains suspended for retry");
+		return err;
+	}
 	restore_err = pm_device_action_run(modem, PM_DEVICE_ACTION_RESUME);
 	if (restore_err < 0) {
 		LOG_ERR("Failed to resume modem after XDFU: %d", restore_err);
 		return err < 0 ? err : restore_err;
 	}
-	LOG_INF("Transfer complete!");
+	if (err == 0) {
+		LOG_INF("nRF91 update transfer complete");
+	}
 
 restore_interface:
 	if (was_up) {
@@ -190,7 +196,6 @@ restore_interface:
 			}
 		}
 	}
-	LOG_INF("Apply nRF91 app done!");
 	return err;
 }
 
@@ -331,7 +336,21 @@ out_close:
 
 		switch (element->target_choice) {
 		case ota_element_target_nrf91_app_m_c:
-			err = apply_nrf91_app((off_t)payload_offset, element->size);
+			err = apply_nrf91_update(SM_XDFU_TYPE_APP, (off_t)payload_offset, element->size);
+			if (err) {
+				return err;
+			}
+			break;
+		case ota_element_target_nrf91_mdm_delta_m_c:
+			err = apply_nrf91_update(SM_XDFU_TYPE_DELTA_MFW, (off_t)payload_offset,
+					 element->size);
+			if (err) {
+				return err;
+			}
+			break;
+		case ota_element_target_nrf91_mdm_full_m_c:
+			err = apply_nrf91_update(SM_XDFU_TYPE_FULL_MFW, (off_t)payload_offset,
+					 element->size);
 			if (err) {
 				return err;
 			}

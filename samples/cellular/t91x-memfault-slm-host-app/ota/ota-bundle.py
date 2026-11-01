@@ -6,9 +6,10 @@
 #
 """Create an OTA bundle as described by ota-bundle.cddl.
 
-The bundle is a CBOR header (ota_bundle) followed by the element payloads, in the order given,
-with no padding. The header contains the sum of the element sizes and the SHA-256 of the
-concatenated payloads (the header is excluded from both).
+The bundle is a CBOR header (ota_bundle) followed by the element payloads with no padding.
+Full modem firmware is placed first, if present; all other elements retain their input order.
+The header contains the sum of the element sizes and the SHA-256 of the concatenated payloads
+(the header is excluded from both). Firmware applies elements in the encoded order.
 
 Example:
     ota-bundle.py -o bundle.bin nrf91_app=app_update.bin nrf91_mdm_full=mfw.bin
@@ -56,6 +57,7 @@ def parse_element(arg: str) -> tuple[str, Path]:
 
 
 def build_bundle(elements: list[tuple[str, Path]]) -> bytes:
+    elements = sorted(elements, key=lambda element: element[0] != "nrf91_mdm_full")
     targets = [target for target, _ in elements]
 
     if len(set(targets)) != len(targets):

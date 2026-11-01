@@ -27,16 +27,17 @@
 int ota_bundle_download(const char *url, const int *sec_tags, uint8_t sec_tag_count);
 
 /**
- * @brief Verify the downloaded bundle and apply its nRF91 application element.
+ * @brief Verify the downloaded bundle and apply its nRF91 update elements.
  *
  * Verifies element metadata, payload size, and SHA-256 before any transfer.
- * Temporarily suspends the modem and PPP interface, streams the application
- * using AT#XDFU, resets the modem, and restores networking. Network registration
- * completes asynchronously. Other targets are logged but not applied.
+ * Suspends the modem and PPP interface, streams application, modem delta, or
+ * full-modem firmware using AT#XDFU, and restores networking after success.
+ * A failed full-modem update leaves the modem suspended for retry.
+ * Network registration completes asynchronously. Other targets are not applied.
  * The nRF91 application must confirm its new MCUboot image after booting.
  *
  * @retval 0 on success, negative errno on failure.
- * @retval -ENOTSUP if the bundle contains no supported application element.
+ * @retval -ENOTSUP if the bundle contains no supported nRF91 update element.
  */
 int ota_bundle_apply(void);
 

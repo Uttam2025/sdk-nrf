@@ -120,7 +120,7 @@ static void ota_thread_fn(void *unused1, void *unused2, void *unused3)
 			if (ret < 0) {
 				LOG_ERR("OTA apply failed (%d)", ret);
 			} else {
-				LOG_INF("OTA application transfer complete");
+				LOG_INF("OTA update transfer complete");
 			}
 		}
 		atomic_set(&ota_operation, OTA_IDLE);

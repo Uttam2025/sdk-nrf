@@ -20,8 +20,8 @@ This sample uses the devicetree alias ``modem`` to identify
 the modem instance to use. The sample also presumes that
 the modem driver creates the only PPP network interface.
 
-nRF91 application updates
-************************
+nRF91 updates
+*************
 
 OTA download and application are started explicitly from the shell, not at boot:
 
@@ -42,15 +42,29 @@ has completed startup. Boot still initializes networking, uploads Memfault data,
 and confirms the host MCUboot image.
 
 After downloading a Memfault OTA bundle, the application verifies the complete
-payload SHA-256 and element sizes before applying an ``nrf91_app`` element.
-The element must contain the MCUboot-signed nRF91 application binary, not a ZIP
-archive or the complete OTA bundle.
+payload SHA-256 and element sizes before applying supported nRF91 elements:
+
+* ``nrf91_app``: a MCUboot-signed nRF91 application binary (XDFU type 0).
+* ``nrf91_mdm_delta``: a modem delta image compatible with the installed modem
+        firmware (XDFU type 1).
+* ``nrf91_mdm_full``: a Nordic full-modem firmware CBOR package (XDFU type 2).
+
+Do not supply ZIP archives. Delta and full modem images are mutually exclusive
+in a bundle; generate bundles using ``ota/ota-bundle.py``.
 
 The local XDFU helper in ``src/sm_xdfu.c`` is adapted from the serial-modem
 ``sm_xdfu`` library. It reads a bounded range directly from ``/ota/bundle.bin``
-without extracting a second file. It uses ``AT#XDFUINIT=0``, chunks of at most
-4096 bytes with ``AT#XDFUWRITE=0``, and ``AT#XDFUAPPLY=0``. Each write and apply
-must report a successful ``#XDFU`` completion before processing continues.
+without extracting a second file. Application and delta updates use
+``AT#XDFUINIT=<type>,<size>``, chunks of at most 4096 bytes with
+``AT#XDFUWRITE=<type>,<offset>,<length>``, and ``AT#XDFUAPPLY=<type>``. Each
+write and apply must report a successful ``#XDFU`` completion before continuing.
+
+For full-modem updates, the host validates the CBOR wrapper, segment ranges,
+and manifest firmware-blob SHA-256 before entering bootloader mode with
+``AT#XDFUINIT=2``. It waits for ``Bootloader mode ready``, writes segments to
+their declared addresses, and applies the first bootloader segment separately.
+The final ``AT#XDFUAPPLY=2`` applies the remaining firmware and reboots the
+modem automatically; no additional reset is sent on success.
 
 PPP is brought down and the cellular driver suspended before the helper takes
 over its UART. After applying the image, the helper resets the nRF91 and waits
@@ -58,11 +72,22 @@ for ``Ready`` before releasing the UART and restoring networking. A reset GPIO
 is needed to recover if a transfer fails while the modem may be in binary mode.
 Network registration after restoration is asynchronous.
 
-The nRF91 firmware must support these XDFU commands and confirm its MCUboot test
-image after a successful boot. The host's own MCUboot confirmation does not
-confirm the nRF91 image. Other bundle targets are logged and skipped; modem
-delta/full firmware and nRF53 updates are not applied by this implementation.
-The bundle is retained on external flash for inspection or retry.
+The nRF91 firmware must support these XDFU commands; full-modem updates also
+require ``CONFIG_SM_DFU_MODEM_FULL=y`` in that firmware. A new application must
+confirm its MCUboot test image after booting. The host's own MCUboot confirmation
+does not confirm the nRF91 image. nRF53 and nRF91 bootloader targets are logged
+and skipped. The bundle is retained on external flash for inspection or retry.
+
+Full-modem updates are destructive once programming begins. If a full update
+fails, the host leaves the modem suspended and does not restart PPP. Retry the
+complete full-modem update from the retained bundle with ``ota apply``; normal
+cellular service may be unavailable until it completes. A successful update
+restores the modem driver, and networking can be brought up again afterwards.
+Firmware applies elements strictly in the order stored in the bundle. The bundle
+generator places full-modem firmware first, if present, and preserves the input
+order of the other elements. This lets a mixed bundle retry full DFU while in
+bootloader mode without firmware reordering. Regenerate existing mixed bundles
+to encode that ordering before using them for full-modem recovery.
 
 Setup
 *****
